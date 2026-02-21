@@ -33,27 +33,27 @@ plot_net <- function(nodes, edges, title = "", show_faded = TRUE) {
       plot_status = case_when(
         status == "faded" ~ "faded",
         status == "new" ~ "new",
-        current_degree == 0 ~ "faded", 
-        TRUE ~ "original"
+        # Only fade original nodes if they lose all links
+        current_degree == 0 & status != "new" ~ "faded", 
+        TRUE ~ status
       )
     )
   
+  # If we are in the final summary column (show_faded = FALSE)
   if (!show_faded) {
     nodes_to_plot <- nodes_to_plot %>% filter(plot_status != "faded")
     edges <- edges %>% filter(edge_status != "faded")
+    # Make all surviving lines solid for the final state
     edges$edge_status <- "original" 
   }
   
   g <- tbl_graph(nodes = nodes_to_plot, edges = edges, directed = FALSE)
   
   ggraph(g, layout = "manual", x = x, y = y) +
-    # Draw Links
     geom_edge_link(aes(alpha = edge_status, linetype = edge_status), 
                    width = 1.5, color = "grey30", show.legend = FALSE) +
-    # Draw Nodes (Filled with color, black border)
     geom_node_point(aes(fill = interaction(partite, plot_status), alpha = plot_status), 
                     size = 9, shape = 21, color = "white", stroke = 1, show.legend = FALSE) +
-    # Define aesthetic scales
     scale_fill_manual(values = c(
       "bottom.original" = "#377eb8", "top.original" = "#e41a1c",
       "bottom.faded" = "#D3D3D3",    "top.faded" = "#D3D3D3",
@@ -61,7 +61,8 @@ plot_net <- function(nodes, edges, title = "", show_faded = TRUE) {
     )) +
     scale_alpha_manual(values = c("original" = 1, "faded" = 0.2, "new" = 1)) +
     scale_edge_alpha_manual(values = c("original" = 1, "faded" = 0.2, "rewired" = 1, "new" = 1)) +
-    scale_edge_linetype_manual(values = c("original" = "solid", "faded" = "solid", "rewired" = "dashed", "new" = "solid")) +
+    # NEW: "new" status now uses dashed lines
+    scale_edge_linetype_manual(values = c("original" = "solid", "faded" = "solid", "rewired" = "dashed", "new" = "dashed")) +
     theme_graph() +
     labs(subtitle = title) +
     coord_cartesian(clip = "off", xlim = c(0.5, 6.5), ylim = c(-0.2, 1.2))
@@ -69,37 +70,32 @@ plot_net <- function(nodes, edges, title = "", show_faded = TRUE) {
 
 # --- 3. GENERATE SCENARIOS ---
 
-# 1) Species Loss
+# 1) Species Turnover (Loss of original -> Gain of new green node)
 r1_c1 <- list(n = nodes_base, e = edges_base)
 r1_c2 <- r1_c1; r1_c2$n$status[2] <- "faded"; r1_c2$e$edge_status[r1_c2$e$from=="L2" | r1_c2$e$to=="H2"] <- "faded"
-r1_c3 <- r1_c2; r1_c3$n$status[5] <- "faded"; r1_c3$e$edge_status[r1_c3$e$from=="L5" | r1_c3$e$to=="H5"] <- "faded"
+r1_c3 <- r1_c2; r1_c3$n <- rbind(r1_c3$n, data.frame(name="NewL", x=2, y=0, partite="bottom", status="new"))
+r1_c3$e <- rbind(r1_c3$e, data.frame(from="NewL", to="H1", edge_status="new"))
 r1_c4 <- r1_c3
 
-# 2) Interaction Loss
+# 2) Interaction Turnover (Loss of links -> Gain of new links, nodes stay same)
 r2_c1 <- list(n = nodes_base, e = edges_base)
-r2_c2 <- r2_c1; r2_c2$e$edge_status[7] <- "faded" 
-r2_c3 <- r2_c2; r2_c3$e$edge_status[8] <- "faded" 
+r2_c2 <- r2_c1; r2_c2$e$edge_status[c(7, 8)] <- "faded" # Fade L1-H2 and L3-H4
+r2_c3 <- r2_c2; r2_c3$e <- rbind(r2_c3$e, data.frame(from=c("L2", "L4"), to=c("H1", "H5"), edge_status="new"))
 r2_c4 <- r2_c3
 
-# 3) Rewiring (Strict 12/9)
+# 3) Strict Rewiring (Total L=9, Total N=12 remains constant)
 r3_c1 <- list(n = nodes_base, e = edges_base)
-r3_c2 <- r3_c1; r3_c2$e$edge_status[1] <- "faded"; r3_c2$e <- rbind(r3_c2$e, data.frame(from="L1", to="H3", edge_status="rewired"))
-r3_c3 <- r3_c2; r3_c3$e$edge_status[6] <- "faded"; r3_c3$e <- rbind(r3_c3$e, data.frame(from="L6", to="H1", edge_status="rewired"))
+r3_c2 <- r3_c1; r3_c2$e$edge_status[c(1, 2, 4)] <- "faded" 
+r3_c2$e <- rbind(r3_c2$e, data.frame(from=c("L1", "L2", "L4"), to=c("H3", "H1", "H2"), edge_status="rewired"))
+r3_c3 <- r3_c2; r3_c3$e$edge_status[c(6, 9)] <- "faded" 
+r3_c3$e <- rbind(r3_c3$e, data.frame(from=c("L6", "L5"), to=c("H1", "H4"), edge_status="rewired"))
 r3_c4 <- r3_c3
-
-# 4) Species Turnover
-r4_c1 <- list(n = nodes_base, e = edges_base)
-r4_c2 <- r4_c1; r4_c2$n$status[6] <- "faded"; r4_c2$e$edge_status[r4_c2$e$from=="L6" | r4_c2$e$to=="H6"] <- "faded"
-r4_c3 <- r4_c2; r4_c3$n <- rbind(r4_c3$n, data.frame(name="NewL", x=6, y=0, partite="bottom", status="new"))
-r4_c3$e <- rbind(r4_c3$e, data.frame(from="NewL", to="H5", edge_status="new"))
-r4_c4 <- r4_c3
 
 # --- 4. ASSEMBLE ---
 all_plots <- list(
-  plot_net(r1_c1$n, r1_c1$e, "T0: Original"), plot_net(r1_c2$n, r1_c2$e), plot_net(r1_c3$n, r1_c3$e), plot_net(r1_c4$n, r1_c4$e, "1) Species Loss", FALSE),
-  plot_net(r2_c1$n, r2_c1$e), plot_net(r2_c2$n, r2_c2$e), plot_net(r2_c3$n, r2_c3$e), plot_net(r2_c4$n, r2_c4$e, "2) Interaction Loss", FALSE),
-  plot_net(r3_c1$n, r3_c1$e), plot_net(r3_c2$n, r3_c2$e), plot_net(r3_c3$n, r3_c3$e), plot_net(r3_c4$n, r3_c4$e, "3) Rewiring", FALSE),
-  plot_net(r4_c1$n, r4_c1$e), plot_net(r4_c2$n, r4_c2$e), plot_net(r4_c3$n, r4_c3$e), plot_net(r4_c4$n, r4_c4$e, "4) Species Turnover", FALSE)
+  plot_net(r1_c1$n, r1_c1$e, "T0: Original"), plot_net(r1_c2$n, r1_c2$e), plot_net(r1_c3$n, r1_c3$e), plot_net(r1_c4$n, r1_c4$e, "1) Species Turnover", FALSE),
+  plot_net(r2_c1$n, r2_c1$e), plot_net(r2_c2$n, r2_c2$e), plot_net(r2_c3$n, r2_c3$e), plot_net(r2_c4$n, r2_c4$e, "2) Interaction Turnover", FALSE),
+  plot_net(r3_c1$n, r3_c1$e), plot_net(r3_c2$n, r3_c2$e), plot_net(r3_c3$n, r3_c3$e), plot_net(r3_c4$n, r3_c4$e, "3) Strict Rewiring", FALSE)
 )
 
 arrow_plot <- ggplot() +
@@ -108,49 +104,19 @@ arrow_plot <- ggplot() +
                linewidth = 1.5, color = "darkred") +
   annotate("text", x = 0.5, y = 0.2, label = "INCREASING ANTHROPOGENIC STRESS", 
            fontface = "bold", color = "darkred", size = 4.5) +
-  theme_void() +
-  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+  theme_void() + coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
 
-(wrap_plots(all_plots, ncol = 4) / arrow_plot) + 
-  plot_layout(heights = c(20, 1.2)) +
-  plot_annotation(
-    title = "Ecological Network Reorganization and Conservation Impacts",
-    theme = theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5))
-  )
-
-# 1. Save as a high-resolution PNG 
-ggsave(
-  filename = "Network_Restructuring_Figure.png",
-  plot = final_layout,
-  width = 12,        # Width in inches
-  height = 11,       # Height in inches (slightly less than width to account for the arrow)
-  units = "in",
-  dpi = 300,         # High resolution for printing
-  bg = "white"       # Ensures the background isn't transparent
-)
-
-# Combine the network grid and the arrow plot into one object named p_final
 p_final <- (wrap_plots(all_plots, ncol = 4) / arrow_plot) + 
-  plot_layout(heights = c(20, 1.2)) +
+  plot_layout(heights = c(15, 1)) +
   plot_annotation(
-    title = "Network reorganization and conservation in a changing world",
+    title = "Ecological Network Dynamics: Turnover and Rewiring",
     theme = theme(plot.title = element_text(size = 22, face = "bold", hjust = 0.5))
   )
 
-# --- 5. SAVE THE FIGURE ---
-# This ensures the dimensions are fixed regardless of your RStudio screen size.
-# Width 14 and Height 12 is a good ratio for a 4x4 grid + footer.
-ggsave(
-  filename = "Ecological_Network_Reorganization.png", 
-  plot = p_final, 
-  width = 14, 
-  height = 12, 
-  units = "in", 
-  dpi = 300, 
-  bg = "white"
-)
-
-# Also save as PDF for maximum quality (Vector format)
+# --- 5. SAVE ---
+##PNG
+ggsave("Network_Turnover_Final.png", p_final, width = 14, height = 10, dpi = 300, bg = "white")
+##PDF
 ggsave(
   filename = "Ecological_Network_Reorganization.pdf", 
   plot = p_final, 
